@@ -14,20 +14,26 @@ app = FastAPI(title="Patient Management System (FastAPI + SQLAlchemy)")
 # CORS Middleware
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # Change in production for security
+    allow_origins=["*"],  # Change to your frontend domain in production
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
-# Serve static files
+# Serve static files (your HTML/JS/CSS will go here)
 app.mount("/static", StaticFiles(directory="static"), name="static")
 
 # ---------- DATABASE SETUP ----------
-DB_PATH = os.environ.get("DB_PATH", "patients.db")  # Default to local SQLite
-DATABASE_URL = f"sqlite:///{DB_PATH}"
+DATABASE_URL = os.environ.get("DATABASE_URL")
+if not DATABASE_URL:
+    DB_PATH = os.environ.get("DB_PATH", "patients.db")  # fallback for local dev
+    DATABASE_URL = f"sqlite:///{DB_PATH}"
 
-engine = create_engine(DATABASE_URL, connect_args={"check_same_thread": False})
+# Render/Heroku Postgres fix
+if DATABASE_URL.startswith("postgres://"):
+    DATABASE_URL = DATABASE_URL.replace("postgres://", "postgresql://", 1)
+
+engine = create_engine(DATABASE_URL, connect_args={"check_same_thread": False} if DATABASE_URL.startswith("sqlite") else {})
 SessionLocal = sessionmaker(bind=engine, autoflush=False, autocommit=False)
 Base = declarative_base()
 
@@ -52,13 +58,13 @@ def get_db():
 
 # ---------- PYDANTIC MODELS ----------
 class Patient(BaseModel):
-    id: Annotated[str, Field(..., description='ID of the patient', examples=['P001'])]
-    name: Annotated[str, Field(..., description='Name of the patient')]
-    city: Annotated[str, Field(..., description='City')]
-    age: Annotated[int, Field(..., gt=0, lt=120, description='Age')]
-    gender: Annotated[Literal['male', 'female', 'others'], Field(..., description='Gender')]
-    height: Annotated[float, Field(..., gt=0, description='Height in meters')]
-    weight: Annotated[float, Field(..., gt=0, description='Weight in kgs')]
+    id: Annotated[str, Field(..., description="ID of the patient", examples=["P001"])]
+    name: Annotated[str, Field(..., description="Name of the patient")]
+    city: Annotated[str, Field(..., description="City")]
+    age: Annotated[int, Field(..., gt=0, lt=120, description="Age")]
+    gender: Annotated[Literal["male", "female", "others"], Field(..., description="Gender")]
+    height: Annotated[float, Field(..., gt=0, description="Height in meters")]
+    weight: Annotated[float, Field(..., gt=0, description="Weight in kgs")]
 
     @computed_field
     @property
@@ -69,19 +75,19 @@ class Patient(BaseModel):
     @property
     def verdict(self) -> str:
         if self.bmi < 18.5:
-            return 'Underweight'
+            return "Underweight"
         elif self.bmi < 25:
-            return 'Normal'
+            return "Normal"
         elif self.bmi < 30:
-            return 'Overweight'
+            return "Overweight"
         else:
-            return 'Obese'
+            return "Obese"
 
 class PatientUpdate(BaseModel):
     name: Optional[str] = None
     city: Optional[str] = None
     age: Optional[int] = Field(default=None, gt=0, lt=120)
-    gender: Optional[Literal['male', 'female', 'others']] = None
+    gender: Optional[Literal["male", "female", "others"]] = None
     height: Optional[float] = Field(default=None, gt=0)
     weight: Optional[float] = Field(default=None, gt=0)
 
@@ -94,7 +100,7 @@ def db_to_patient_dict(db_obj: PatientDB) -> Dict:
         "age": db_obj.age,
         "gender": db_obj.gender,
         "height": db_obj.height,
-        "weight": db_obj.weight
+        "weight": db_obj.weight,
     }
     return Patient(**data).model_dump()
 
@@ -103,12 +109,10 @@ def db_to_patient_dict(db_obj: PatientDB) -> Dict:
 @app.get("/dashboard")
 @app.get("/app")
 async def serve_index():
-    """Serve main HTML dashboard"""
     return FileResponse(os.path.join("templates", "index.html"))
 
 @app.get("/api")
 def api_status():
-    """Basic API status check"""
     return {"message": "Patient Management System API"}
 
 @app.get("/about")
@@ -121,32 +125,33 @@ def view_all(db: Session = Depends(get_db)):
     return {p.id: db_to_patient_dict(p) for p in patients}
 
 @app.get("/patient/{patient_id}")
-def view_patient(patient_id: str = Path(..., example="P001"), db: Session = Depends(get_db)):
+def view_patient(patient_id: str, db: Session = Depends(get_db)):
     patient = db.get(PatientDB, patient_id)
     if patient:
         return db_to_patient_dict(patient)
     raise HTTPException(status_code=404, detail="Patient not found")
 
 @app.get("/sort")
-def sort_patients(sort_by: str = Query(..., description='Sort by height, weight or bmi'),
-                  order: str = Query('asc', description='Sort order: asc/desc'),
-                  db: Session = Depends(get_db)):
-    valid_fields = ['height', 'weight', 'bmi']
+def sort_patients(
+    sort_by: str = Query(..., description="Sort by height, weight or bmi"),
+    order: str = Query("asc", description="Sort order: asc/desc"),
+    db: Session = Depends(get_db),
+):
+    valid_fields = ["height", "weight", "bmi"]
     if sort_by not in valid_fields:
-        raise HTTPException(status_code=400, detail=f'Invalid field. Choose from {valid_fields}')
-    if order not in ['asc', 'desc']:
-        raise HTTPException(status_code=400, detail='Invalid order. Choose asc or desc')
+        raise HTTPException(status_code=400, detail=f"Invalid field. Choose from {valid_fields}")
+    if order not in ["asc", "desc"]:
+        raise HTTPException(status_code=400, detail="Invalid order. Choose asc or desc")
 
     patients = [db_to_patient_dict(p) for p in db.query(PatientDB).all()]
-    reverse = order == 'desc'
-    sorted_data = sorted(patients, key=lambda x: x.get(sort_by, 0), reverse=reverse)
-    return sorted_data
+    reverse = order == "desc"
+    return sorted(patients, key=lambda x: x.get(sort_by, 0), reverse=reverse)
 
 @app.post("/create")
 def create_patient(patient: Patient, db: Session = Depends(get_db)):
     if db.get(PatientDB, patient.id):
         raise HTTPException(status_code=400, detail="Patient already exists")
-    new_patient = PatientDB(**patient.model_dump(exclude={'bmi', 'verdict'}))
+    new_patient = PatientDB(**patient.model_dump(exclude={"bmi", "verdict"}))
     db.add(new_patient)
     db.commit()
     db.refresh(new_patient)
@@ -195,5 +200,5 @@ def get_stats(db: Session = Depends(get_db)):
         "total": total,
         "average_bmi": average_bmi,
         "verdict_counts": verdict_counts,
-        "city_counts": city_counts
+        "city_counts": city_counts,
     }

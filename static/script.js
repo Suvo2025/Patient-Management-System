@@ -1,5 +1,8 @@
 let editingPatientId = null;
-const API_BASE = 'http://127.0.0.1:8000';
+const API_BASE =
+  window.location.hostname === "localhost" || window.location.hostname === "127.0.0.1"
+    ? "http://127.0.0.1:8000"  // local dev
+    : "https://your-app.onrender.com";  // deployed backend URL
 
 document.addEventListener("DOMContentLoaded", () => {
     const form = document.getElementById("patientForm");
