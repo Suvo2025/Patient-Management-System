@@ -7,6 +7,7 @@ from pydantic import BaseModel, Field, computed_field
 from typing import Annotated, Literal, Optional, Dict
 from sqlalchemy import create_engine, Column, String, Integer, Float
 from sqlalchemy.orm import sessionmaker, declarative_base, Session
+import json
 
 # ---------- APP SETUP ----------
 app = FastAPI(title="Patient Management System (FastAPI + SQLAlchemy)")
@@ -14,26 +15,26 @@ app = FastAPI(title="Patient Management System (FastAPI + SQLAlchemy)")
 # CORS Middleware
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # Change to your frontend domain in production
+    allow_origins=["*"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
-# Serve static files (your HTML/JS/CSS will go here)
+# Serve static files
 app.mount("/static", StaticFiles(directory="static"), name="static")
 
 # ---------- DATABASE SETUP ----------
 DATABASE_URL = os.environ.get("DATABASE_URL")
 if not DATABASE_URL:
-    DB_PATH = os.environ.get("DB_PATH", "patients.db")  # fallback for local dev
+    DB_PATH = os.environ.get("DB_PATH", "patients.db")
     DATABASE_URL = f"sqlite:///{DB_PATH}"
 
-# Render/Heroku Postgres fix
-if DATABASE_URL.startswith("postgres://"):
+# Render/Heroku Postgres fix - ADDED NULL CHECK
+if DATABASE_URL and DATABASE_URL.startswith("postgres://"):
     DATABASE_URL = DATABASE_URL.replace("postgres://", "postgresql://", 1)
 
-engine = create_engine(DATABASE_URL, connect_args={"check_same_thread": False} if DATABASE_URL.startswith("sqlite") else {})
+engine = create_engine(DATABASE_URL, connect_args={"check_same_thread": False} if DATABASE_URL and DATABASE_URL.startswith("sqlite") else {})
 SessionLocal = sessionmaker(bind=engine, autoflush=False, autocommit=False)
 Base = declarative_base()
 
@@ -102,14 +103,21 @@ def db_to_patient_dict(db_obj: PatientDB) -> Dict:
         "height": db_obj.height,
         "weight": db_obj.weight,
     }
-    return Patient(**data).model_dump()
+    patient = Patient(**data)
+    return patient.model_dump()
 
 # ---------- ROUTES ----------
 @app.get("/")
 @app.get("/dashboard")
 @app.get("/app")
 async def serve_index():
-    return FileResponse(os.path.join("templates", "index.html"))
+    # Improved file existence check
+    if not os.path.exists("templates/index.html"):
+        return JSONResponse(
+            status_code=404,
+            content={"message": "Frontend not found. Please check your deployment."}
+        )
+    return FileResponse("templates/index.html")
 
 @app.get("/api")
 def api_status():
@@ -202,3 +210,8 @@ def get_stats(db: Session = Depends(get_db)):
         "verdict_counts": verdict_counts,
         "city_counts": city_counts,
     }
+
+if __name__ == "__main__":
+    import uvicorn
+    port = int(os.environ.get("PORT", 8000))
+    uvicorn.run(app, host="0.0.0.0", port=port)

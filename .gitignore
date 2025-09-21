@@ -1,20 +1,30 @@
 # Python
 __pycache__/
-*.pyc
-
-# Virtual environment
+*.py[cod]
+*$py.class
+*.so
+.Python
+.env
 .venv/
 venv/
-env/
+ENV/
 
-# SQLite database
-patients.db
+# Database
+*.db
+*.sqlite3
 
-# IDE / OS files
+# IDE
 .vscode/
 .idea/
+*.swp
+*.swo
+
+# OS
 .DS_Store
 Thumbs.db
 
 # Logs
 *.log
+
+# Render
+.profile

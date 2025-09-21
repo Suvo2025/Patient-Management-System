@@ -1,8 +1,6 @@
 let editingPatientId = null;
-const API_BASE =
-  window.location.hostname === "localhost" || window.location.hostname === "127.0.0.1"
-    ? "http://127.0.0.1:8000"  // local dev
-    : "https://your-app.onrender.com";  // deployed backend URL
+// Use relative paths for API calls in production
+const API_BASE = window.location.origin;
 
 document.addEventListener("DOMContentLoaded", () => {
     const form = document.getElementById("patientForm");
@@ -13,19 +11,7 @@ document.addEventListener("DOMContentLoaded", () => {
     const refreshBtn = document.getElementById("refreshBtn");
     const cancelEditBtn = document.getElementById("cancelEdit");
     const searchInput = document.getElementById("searchInput");
-    const logoutBtn = document.getElementById("logoutBtn");
     let allPatients = [];
-
-    const token = localStorage.getItem("token");
-    if (!token) {
-        window.location.href = "/"; // redirect to login if no token
-        return;
-    }
-
-    function authFetch(url, options = {}) {
-        options.headers = { ...options.headers, 'Authorization': `Bearer ${token}` };
-        return fetch(url, options);
-    }
 
     function showAlert(message, type = 'success') {
         const alert = document.createElement('div');
@@ -44,11 +30,9 @@ document.addEventListener("DOMContentLoaded", () => {
                 url = `${API_BASE}/sort?sort_by=${sortBy}&order=${order}`;
             }
 
-            const response = await authFetch(url);
-            if (response.status === 401) {
-                localStorage.removeItem("token");
-                window.location.href = "/";
-                return;
+            const response = await fetch(url);
+            if (!response.ok) {
+                throw new Error(`HTTP error! status: ${response.status}`);
             }
 
             let patients;
@@ -146,13 +130,13 @@ document.addEventListener("DOMContentLoaded", () => {
             if (editingPatientId) {
                 const updateData = { ...patient };
                 delete updateData.id;
-                response = await authFetch(`${API_BASE}/edit/${editingPatientId}`, {
+                response = await fetch(`${API_BASE}/edit/${editingPatientId}`, {
                     method: "PUT",
                     headers: { "Content-Type": "application/json" },
                     body: JSON.stringify(updateData)
                 });
             } else {
-                response = await authFetch(`${API_BASE}/create`, {
+                response = await fetch(`${API_BASE}/create`, {
                     method: "POST",
                     headers: { "Content-Type": "application/json" },
                     body: JSON.stringify(patient)
@@ -178,7 +162,7 @@ document.addEventListener("DOMContentLoaded", () => {
 
     window.editPatient = async (patientId) => {
         try {
-            const response = await authFetch(`${API_BASE}/patient/${patientId}`);
+            const response = await fetch(`${API_BASE}/patient/${patientId}`);
             if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
             const patient = await response.json();
 
@@ -218,7 +202,7 @@ document.addEventListener("DOMContentLoaded", () => {
     window.deletePatient = async (patientId) => {
         if (!confirm("Are you sure you want to delete this patient?")) return;
         try {
-            const response = await authFetch(`${API_BASE}/delete/${patientId}`, { method: "DELETE" });
+            const response = await fetch(`${API_BASE}/delete/${patientId}`, { method: "DELETE" });
             if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
             const result = await response.json();
             showAlert(result.message || 'Patient deleted successfully!');
@@ -241,7 +225,7 @@ document.addEventListener("DOMContentLoaded", () => {
 
     async function fetchStats() {
         try {
-            const response = await authFetch(`${API_BASE}/stats`);
+            const response = await fetch(`${API_BASE}/stats`);
             if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
             const stats = await response.json();
 
@@ -257,7 +241,13 @@ document.addEventListener("DOMContentLoaded", () => {
 
     function renderChart(canvasId, label, dataObj) {
         const ctx = document.getElementById(canvasId).getContext("2d");
-        new Chart(ctx, {
+        
+        // Clear previous chart if it exists
+        if (window[canvasId + "Chart"]) {
+            window[canvasId + "Chart"].destroy();
+        }
+        
+        window[canvasId + "Chart"] = new Chart(ctx, {
             type: "doughnut",
             data: {
                 labels: Object.keys(dataObj),
@@ -284,16 +274,6 @@ document.addEventListener("DOMContentLoaded", () => {
         });
     }
 
-    // Logout button
-    logoutBtn.addEventListener("click", () => {
-        localStorage.removeItem("token");
-        window.location.href = "/";
-    });
-
-    // Initial load
-    fetchPatients();
-    fetchStats();
-
     // Theme Switcher Logic
     const themeToggle = document.getElementById("themeToggle");
     const root = document.documentElement;
@@ -319,4 +299,8 @@ document.addEventListener("DOMContentLoaded", () => {
         const next = current === "light" ? "dark" : "light";
         applyTheme(next);
     });
+
+    // Initial load
+    fetchPatients();
+    fetchStats();
 });
